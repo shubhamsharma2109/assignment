@@ -918,7 +918,7 @@ def validate_citations(
 
     citations = re.findall(
 
-        r"\[S(\d+)\]",
+        r"[\[\(]S(\d+)[\]\)]",
 
         answer
 
@@ -1002,7 +1002,7 @@ def print_citations_used(answer, legend):
     """
 
     used_ids = sorted(
-        {int(x) for x in re.findall(r"\[S(\d+)\]", answer)}
+        {int(x) for x in re.findall(r"[\[\(]S(\d+)[\]\)]", answer)}
     )
 
     if not used_ids:
@@ -1033,6 +1033,81 @@ def print_citations_used(answer, legend):
 
     print()
     print("-" * 70)
+
+
+# ============================================================
+# GENERATE ANSWER (shared by rag.py's ask() and rag_graph.py's
+# answer_node, so there is one implementation of "how the model
+# is prompted and called", not two that can drift apart)
+# ============================================================
+
+def generate_answer(
+    question,
+    docs,
+):
+
+    """
+    Builds the full multimodal message (context + citation
+    rules + figure/table images) and calls vLLM once.
+
+    Returns the raw answer string. Does NOT do the
+    "not enough information" check or citation validation —
+    callers handle that themselves, since rag_graph.py's
+    verification_node does its own hallucination check instead
+    of the regex-based validate_citations used by rag.py.
+    """
+
+    message_content = (
+
+        build_message_content(
+
+            question,
+
+            docs
+
+        )
+
+    )
+
+    print(
+        "[GEMINI] Generating answer..."
+    )
+
+    response = client.chat.completions.create(
+
+        model=VLLM_MODEL,
+
+        messages=[
+
+            {
+
+                "role": "user",
+
+                "content": message_content
+
+            }
+
+        ],
+
+        temperature=0,
+
+    )
+
+    answer = (
+
+        response
+        .choices[0]
+        .message
+        .content
+        .strip()
+
+    )
+
+    print("\n[vLLM RAW ANSWER]")
+    print(repr(answer))
+    print()
+
+    return answer
 
 
 # ============================================================
@@ -1073,66 +1148,13 @@ def ask(
 
 
     # --------------------------------------------------------
-    # Build multimodal message
+    # Generate
     # --------------------------------------------------------
 
-    message_content = (
-
-        build_message_content(
-
-            question,
-
-            docs
-
-        )
-
+    answer = generate_answer(
+        question,
+        docs,
     )
-
-
-    # --------------------------------------------------------
-    # OpenAI-compatible vLLM call
-    # --------------------------------------------------------
-
-    print(
-        "[GEMINI] Generating answer..."
-    )
-
-
-    response = client.chat.completions.create(
-
-        model=VLLM_MODEL,
-
-        messages=[
-
-            {
-
-                "role": "user",
-
-                "content": message_content
-
-            }
-
-        ],
-
-        temperature=0,
-
-    )
-
-
-    answer = (
-
-        response
-        .choices[0]
-        .message
-        .content
-        .strip()
-
-    )
-
-
-    print("\n[vLLM RAW ANSWER]")
-    print(repr(answer))
-    print()
 
     # --------------------------------------------------------
     # Model self-reported fallback

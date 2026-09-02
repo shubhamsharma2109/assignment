@@ -35,6 +35,7 @@ from rag import (
     format_context,
     build_citation_legend,
     print_citations_used,
+    generate_answer,
 )
 
 
@@ -464,88 +465,22 @@ def answer_node(
     state: RAGState
 ):
 
+    """
+    Delegates to rag.py's generate_answer(), which builds the
+    full multimodal message (context + citation rules + any
+    figure/table images) and calls vLLM. This keeps prompting
+    and generation identical between rag.py's own CLI and this
+    graph — including image support, which this node previously
+    lacked when it built its own text-only prompt.
+    """
+
     question = state["question"]
 
     documents = state["documents"]
 
-    context = format_context(
-        documents
-    )
-
-    system_prompt = """
-You are a research-paper QA assistant.
-
-Answer ONLY using the supplied
-research-paper context.
-
-STRICT RULES:
-
-1. Do not use outside knowledge.
-
-2. Do not fabricate facts.
-
-3. Do not fabricate research findings.
-
-4. Do not invent paper titles, authors,
-   datasets, methods, results, or numbers.
-
-5. Every factual claim must have a citation.
-
-6. Citations must use the supplied IDs:
-
-   [S1]
-   [S2]
-   [S3]
-
-7. Never create citation IDs that do not
-   exist in the context.
-
-8. If the context is insufficient,
-   do not guess.
-
-9. Clearly distinguish what the paper
-   reports from interpretation.
-
-10. Keep the answer academically clear
-    and concise.
-
-11. Citation tags MUST use square brackets
-    exactly as shown: [S1], [S2], [S3].
-    Do NOT use parentheses like (S1) or
-    any other format. Square brackets only.
-
-Example of the required citation format:
-
-"BERT is pre-trained using masked language
-modeling and next sentence prediction [S1].
-Fine-tuning then adapts the pre-trained
-parameters to each downstream task [S2]."
-"""
-
-    user_prompt = f"""
-Question:
-
-{question}
-
-
-Research-paper context:
-
-{context}
-
-
-Answer using ONLY the supplied context.
-
-Include citations such as [S1] and [S2].
-
-REMINDER: every citation tag must use square
-brackets exactly like [S1] — never (S1) or
-any other format. Do not skip a citation on
-any factual sentence.
-"""
-
-    answer = call_llm(
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
+    answer = generate_answer(
+        question,
+        documents,
     )
 
     print(
