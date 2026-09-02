@@ -1,21 +1,13 @@
 import os
 import re
-import base64
-import mimetypes
+import traceback
 
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from langchain_huggingface import (
-    HuggingFaceEmbeddings
-)
-
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
-
-from langchain_community.retrievers import (
-    BM25Retriever
-)
-
+from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
 
 
@@ -23,10 +15,13 @@ from langchain_core.documents import Document
 # CONFIGURATION
 # ============================================================
 
+print("\n" + "=" * 80)
+print("STARTING MULTIMODAL RAG DEBUG")
+print("=" * 80)
+
+print("[DEBUG] Loading .env...")
 load_dotenv()
-
-
-
+print("[DEBUG] .env loaded")
 
 
 # ------------------------------------------------------------
@@ -34,19 +29,19 @@ load_dotenv()
 # ------------------------------------------------------------
 
 CHROMA_DIR = "chroma_db"
-
 COLLECTION_NAME = "research_papers"
+
+print("[CONFIG] CHROMA_DIR       =", CHROMA_DIR)
+print("[CONFIG] COLLECTION_NAME  =", COLLECTION_NAME)
 
 
 # ------------------------------------------------------------
 # Embeddings
 # ------------------------------------------------------------
 
-EMBEDDING_MODEL = (
-    "sentence-transformers/all-MiniLM-L6-v2"
-)
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
-
+print("[CONFIG] EMBEDDING_MODEL  =", EMBEDDING_MODEL)
 
 
 # ------------------------------------------------------------
@@ -56,22 +51,15 @@ EMBEDDING_MODEL = (
 TOP_K = 5
 
 DENSE_WEIGHT = 0.7
-
 BM25_WEIGHT = 0.3
 
-
-# ------------------------------------------------------------
-# Image settings
-# ------------------------------------------------------------
-
-MAX_IMAGES_PER_QUERY = 3
+print("[CONFIG] TOP_K            =", TOP_K)
+print("[CONFIG] DENSE_WEIGHT     =", DENSE_WEIGHT)
+print("[CONFIG] BM25_WEIGHT      =", BM25_WEIGHT)
 
 
 # ============================================================
-# GEMINI — OPENAI COMPATIBLE CLIENT
-# ============================================================
-# ============================================================
-# vLLM — OPENAI COMPATIBLE CLIENT
+# vLLM OPENAI-COMPATIBLE CLIENT
 # ============================================================
 
 VLLM_BASE_URL = os.getenv(
@@ -89,62 +77,117 @@ VLLM_API_KEY = os.getenv(
     "EMPTY"
 )
 
+print("\n" + "=" * 80)
+print("vLLM CONFIGURATION")
+print("=" * 80)
+
+print("[VLLM] BASE URL :", VLLM_BASE_URL)
+print("[VLLM] MODEL    :", VLLM_MODEL)
+print("[VLLM] API KEY  :", VLLM_API_KEY)
+
+print("[VLLM] Creating OpenAI client...")
+
 client = OpenAI(
     api_key=VLLM_API_KEY,
     base_url=VLLM_BASE_URL,
 )
 
+print("[VLLM] OpenAI client created")
 
 
 # ============================================================
 # EMBEDDINGS
 # ============================================================
 
-print(
-    "[EMBEDDINGS] Loading model..."
-)
+print("\n" + "=" * 80)
+print("LOADING EMBEDDINGS")
+print("=" * 80)
 
-embeddings = HuggingFaceEmbeddings(
+try:
 
-    model_name=EMBEDDING_MODEL,
+    print("[EMBEDDINGS] Loading model...")
 
-    model_kwargs={
-        "device": "cpu"
-    },
+    embeddings = HuggingFaceEmbeddings(
 
-    encode_kwargs={
-        "normalize_embeddings": True
-    }
+        model_name=EMBEDDING_MODEL,
 
-)
+        model_kwargs={
+            "device": "cpu"
+        },
 
-print(
-    "[EMBEDDINGS] Model loaded."
-)
+        encode_kwargs={
+            "normalize_embeddings": True
+        }
+
+    )
+
+    print("[EMBEDDINGS] Model loaded successfully")
+
+except Exception as e:
+
+    print("\n[ERROR] Failed to load embeddings")
+    print("[ERROR]", repr(e))
+    traceback.print_exc()
+    raise
 
 
 # ============================================================
 # CHROMA
 # ============================================================
 
-print(
-    "[CHROMA] Loading vector database..."
-)
+print("\n" + "=" * 80)
+print("LOADING CHROMA")
+print("=" * 80)
 
-vectorstore = Chroma(
+try:
 
-    collection_name=COLLECTION_NAME,
+    print("[CHROMA] Directory:", os.path.abspath(CHROMA_DIR))
 
-    persist_directory=CHROMA_DIR,
+    print("[CHROMA] Loading vector database...")
 
-    embedding_function=embeddings
+    vectorstore = Chroma(
 
-)
+        collection_name=COLLECTION_NAME,
 
-print(
-    "[CHROMA] Collection:",
-    COLLECTION_NAME
-)
+        persist_directory=CHROMA_DIR,
+
+        embedding_function=embeddings
+
+    )
+
+    print("[CHROMA] Vector database loaded")
+
+    print(
+        "[CHROMA] Collection:",
+        COLLECTION_NAME
+    )
+
+    # --------------------------------------------------------
+    # DEBUG: Check collection count
+    # --------------------------------------------------------
+
+    try:
+
+        collection_count = vectorstore._collection.count()
+
+        print(
+            "[CHROMA] Number of vectors:",
+            collection_count
+        )
+
+    except Exception as e:
+
+        print(
+            "[CHROMA] Could not get collection count:",
+            repr(e)
+        )
+
+except Exception as e:
+
+    print("\n[ERROR] Failed to load Chroma")
+    print("[ERROR]", repr(e))
+    traceback.print_exc()
+    raise
 
 
 # ============================================================
@@ -153,27 +196,57 @@ print(
 
 def load_documents_from_chroma():
 
-    data = vectorstore.get(
+    print("\n" + "=" * 80)
+    print("LOADING DOCUMENTS FROM CHROMA")
+    print("=" * 80)
 
+    print("[CHROMA] Calling vectorstore.get()...")
+
+    data = vectorstore.get(
         include=[
             "documents",
             "metadatas"
         ]
+    )
 
+    print(
+        "[CHROMA] Raw documents returned:",
+        len(data.get("documents", []))
+    )
+
+    print(
+        "[CHROMA] Raw metadata returned:",
+        len(data.get("metadatas", []))
     )
 
     documents = []
 
-    for text, metadata in zip(
-
-        data["documents"],
-
-        data["metadatas"]
-
+    for index, (text, metadata) in enumerate(
+        zip(
+            data["documents"],
+            data["metadatas"]
+        ),
+        start=1
     ):
 
+        print()
+        print("-" * 80)
+        print(f"[CHROMA DOCUMENT {index}]")
+        print("-" * 80)
+
+        print("[DEBUG] Metadata:")
+        print(metadata)
+
         if not text:
+
+            print("[DEBUG] Document has no text. SKIPPING")
+
             continue
+
+        print("[DEBUG] Text length:", len(text))
+
+        print("[DEBUG] FULL TEXT:")
+        print(text)
 
         documents.append(
 
@@ -187,35 +260,49 @@ def load_documents_from_chroma():
 
         )
 
+    print()
+    print(
+        "[CHROMA] Total LangChain documents:",
+        len(documents)
+    )
+
     return documents
 
 
-documents = (
-    load_documents_from_chroma()
-)
-
-
-print(
-    f"[CHROMA] Loaded "
-    f"{len(documents)} documents."
-)
+documents = load_documents_from_chroma()
 
 
 # ============================================================
-# BM25 RETRIEVER
+# BM25
 # ============================================================
+
+print("\n" + "=" * 80)
+print("CREATING BM25 RETRIEVER")
+print("=" * 80)
 
 if documents:
 
-    bm25_retriever = (
-        BM25Retriever.from_documents(
-            documents
-        )
+    print(
+        "[BM25] Creating BM25 retriever from",
+        len(documents),
+        "documents"
+    )
+
+    bm25_retriever = BM25Retriever.from_documents(
+        documents
     )
 
     bm25_retriever.k = TOP_K
 
+    print(
+        "[BM25] BM25 retriever created"
+    )
+
 else:
+
+    print(
+        "[BM25] No documents available"
+    )
 
     bm25_retriever = None
 
@@ -224,137 +311,39 @@ else:
 # DENSE RETRIEVER
 # ============================================================
 
-dense_retriever = (
+print("\n" + "=" * 80)
+print("CREATING DENSE RETRIEVER")
+print("=" * 80)
 
-    vectorstore.as_retriever(
+dense_retriever = vectorstore.as_retriever(
 
-        search_type="similarity",
+    search_type="similarity",
 
-        search_kwargs={
-            "k": TOP_K
-        }
-
-    )
+    search_kwargs={
+        "k": TOP_K
+    }
 
 )
 
-
-# ============================================================
-# IMAGE ENCODING
-# ============================================================
-
-def encode_image(
-    image_path
-):
-
-    """
-    Convert an image file to base64.
-
-    This follows the OpenAI-compatible
-    multimodal API format used by Gemini.
-    """
-
-    if not image_path:
-
-        return None
-
-
-    if not os.path.exists(
-        image_path
-    ):
-
-        print(
-            "[IMAGE] File not found:",
-            image_path
-        )
-
-        return None
-
-
-    try:
-
-        with open(
-            image_path,
-            "rb"
-        ) as image_file:
-
-            return base64.b64encode(
-                image_file.read()
-            ).decode(
-                "utf-8"
-            )
-
-    except Exception as e:
-
-        print(
-            "[IMAGE] Error reading:",
-            image_path,
-            e
-        )
-
-        return None
-
-
-# ============================================================
-# IMAGE -> DATA URL
-# ============================================================
-
-def image_to_data_url(
-    image_path
-):
-
-    encoded = encode_image(
-        image_path
-    )
-
-    if not encoded:
-
-        return None
-
-
-    mime_type, _ = (
-        mimetypes.guess_type(
-            image_path
-        )
-    )
-
-
-    if not mime_type:
-
-        mime_type = "image/png"
-
-
-    return (
-        f"data:{mime_type};base64,"
-        f"{encoded}"
-    )
+print("[DENSE] Dense retriever created")
 
 
 # ============================================================
 # DOCUMENT TYPE
 # ============================================================
 
-def document_type(
-    doc
-):
+def document_type(doc):
 
-    content_type = (
-        doc.metadata.get(
-            "content_type",
-            "text"
-        )
+    content_type = doc.metadata.get(
+        "content_type",
+        "text"
     )
 
-
     if content_type == "figure":
-
         return "FIGURE"
 
-
     if content_type == "table":
-
         return "TABLE"
-
 
     return "TEXT"
 
@@ -363,12 +352,9 @@ def document_type(
 # DOCUMENT KEY
 # ============================================================
 
-def document_key(
-    doc
-):
+def document_key(doc):
 
     metadata = doc.metadata
-
 
     source = metadata.get(
         "source",
@@ -395,7 +381,6 @@ def document_key(
         ""
     )
 
-
     return (
         f"{source}|"
         f"{page}|"
@@ -419,208 +404,294 @@ def reciprocal_rank_fusion(
 
 ):
 
-    scores = {}
+    print("\n" + "=" * 80)
+    print("RECIPROCAL RANK FUSION")
+    print("=" * 80)
 
+    scores = {}
     doc_map = {}
 
+    # --------------------------------------------------------
+    # Dense
+    # --------------------------------------------------------
 
-    # --------------------------------------------------------
-    # Dense results
-    # --------------------------------------------------------
+    print(
+        "[RRF] Processing dense documents:",
+        len(dense_docs)
+    )
 
     for rank, doc in enumerate(
-
         dense_docs,
-
         start=1
-
     ):
 
-        key = document_key(
-            doc
-        )
-
+        key = document_key(doc)
 
         score = (
-
             DENSE_WEIGHT
-
             *
-
             (
                 1 /
                 (rrf_k + rank)
             )
-
         )
 
+        print(
+            f"[RRF][DENSE] Rank={rank} "
+            f"Score={score:.6f} "
+            f"Key={key}"
+        )
 
         scores[key] = (
-
             scores.get(
                 key,
                 0
             )
-
             +
-
             score
-
         )
-
 
         doc_map[key] = doc
 
+    # --------------------------------------------------------
+    # BM25
+    # --------------------------------------------------------
 
-    # --------------------------------------------------------
-    # BM25 results
-    # --------------------------------------------------------
+    print(
+        "[RRF] Processing BM25 documents:",
+        len(bm25_docs)
+    )
 
     for rank, doc in enumerate(
-
         bm25_docs,
-
         start=1
-
     ):
 
-        key = document_key(
-            doc
-        )
-
+        key = document_key(doc)
 
         score = (
-
             BM25_WEIGHT
-
             *
-
             (
                 1 /
                 (rrf_k + rank)
             )
-
         )
 
+        print(
+            f"[RRF][BM25] Rank={rank} "
+            f"Score={score:.6f} "
+            f"Key={key}"
+        )
 
         scores[key] = (
-
             scores.get(
                 key,
                 0
             )
-
             +
-
             score
-
         )
 
-
         doc_map[key] = doc
-
 
     # --------------------------------------------------------
     # Sort
     # --------------------------------------------------------
 
     ranked = sorted(
-
         scores.items(),
-
         key=lambda x: x[1],
-
         reverse=True
-
     )
 
+    print("\n[RRF] FINAL RANKING")
 
-    return [
+    for rank, (key, score) in enumerate(
+        ranked,
+        start=1
+    ):
 
+        print(
+            f"[RRF] {rank}. "
+            f"{score:.6f} "
+            f"{key}"
+        )
+
+    result = [
         doc_map[key]
-
         for key, _ in ranked
-
     ][:TOP_K]
+
+    print(
+        "[RRF] Returning",
+        len(result),
+        "documents"
+    )
+
+    return result
 
 
 # ============================================================
 # RETRIEVAL
 # ============================================================
 
-def retrieve(
-    question
-):
+def retrieve(question):
 
-    print()
-    print(
-        "[RETRIEVAL]",
-        question
-    )
+    print("\n\n" + "=" * 80)
+    print("RETRIEVAL START")
+    print("=" * 80)
 
+    print("[QUESTION]")
+    print(question)
 
     # --------------------------------------------------------
     # Dense retrieval
     # --------------------------------------------------------
 
-    dense_docs = (
+    print("\n[DENSE] Starting dense retrieval...")
 
-        dense_retriever.invoke(
+    try:
+
+        dense_docs = dense_retriever.invoke(
             question
         )
 
-    )
+        print(
+            "[DENSE] Retrieved:",
+            len(dense_docs)
+        )
 
+    except Exception as e:
 
-    print(
-        f"[DENSE] "
-        f"{len(dense_docs)} results"
-    )
+        print(
+            "[DENSE ERROR]",
+            repr(e)
+        )
 
+        traceback.print_exc()
+
+        dense_docs = []
 
     # --------------------------------------------------------
-    # BM25 retrieval
+    # Print dense documents
     # --------------------------------------------------------
+
+    print("\n" + "-" * 80)
+    print("DENSE RETRIEVAL RESULTS")
+    print("-" * 80)
+
+    for i, doc in enumerate(
+        dense_docs,
+        start=1
+    ):
+
+        print()
+        print(f"[DENSE S{i}]")
+        print("Metadata:")
+        print(doc.metadata)
+
+        print("TEXT:")
+        print(doc.page_content)
+
+    # --------------------------------------------------------
+    # BM25
+    # --------------------------------------------------------
+
+    print("\n[BM25] Starting BM25 retrieval...")
 
     if bm25_retriever:
 
-        bm25_docs = (
+        try:
 
-            bm25_retriever.invoke(
+            bm25_docs = bm25_retriever.invoke(
                 question
             )
 
-        )
+            print(
+                "[BM25] Retrieved:",
+                len(bm25_docs)
+            )
+
+        except Exception as e:
+
+            print(
+                "[BM25 ERROR]",
+                repr(e)
+            )
+
+            traceback.print_exc()
+
+            bm25_docs = []
 
     else:
 
+        print(
+            "[BM25] Retriever unavailable"
+        )
+
         bm25_docs = []
 
+    # --------------------------------------------------------
+    # Print BM25 documents
+    # --------------------------------------------------------
 
-    print(
-        f"[BM25] "
-        f"{len(bm25_docs)} results"
-    )
+    print("\n" + "-" * 80)
+    print("BM25 RETRIEVAL RESULTS")
+    print("-" * 80)
 
+    for i, doc in enumerate(
+        bm25_docs,
+        start=1
+    ):
+
+        print()
+        print(f"[BM25 S{i}]")
+        print("Metadata:")
+        print(doc.metadata)
+
+        print("TEXT:")
+        print(doc.page_content)
 
     # --------------------------------------------------------
-    # Hybrid fusion
+    # Hybrid
     # --------------------------------------------------------
+
+    print("\n[HYBRID] Starting fusion...")
 
     docs = reciprocal_rank_fusion(
-
         dense_docs,
-
         bm25_docs
-
     )
 
+    # --------------------------------------------------------
+    # Print final documents
+    # --------------------------------------------------------
 
-    print(
-        f"[HYBRID] "
-        f"{len(docs)} results"
-    )
+    print("\n" + "=" * 80)
+    print("FINAL HYBRID RETRIEVAL")
+    print("=" * 80)
 
+    for i, doc in enumerate(
+        docs,
+        start=1
+    ):
+
+        print()
+        print("=" * 80)
+        print(f"[FINAL S{i}]")
+        print("=" * 80)
+
+        print("TYPE:")
+        print(document_type(doc))
+
+        print("\nMETADATA:")
+        print(doc.metadata)
+
+        print("\nFULL TEXT:")
+        print(doc.page_content)
+
+    print("\n[HYBRID] Final documents:", len(docs))
 
     return docs
 
@@ -629,115 +700,61 @@ def retrieve(
 # FORMAT DOCUMENT
 # ============================================================
 
-def format_document(
-
-    doc,
-
-    index
-
-):
+def format_document(doc, index):
 
     metadata = doc.metadata
 
-
     source = metadata.get(
-
         "source",
-
         "Unknown"
-
     )
-
 
     page = metadata.get(
-
         "page",
-
         "Unknown"
-
     )
 
-
-    content_type = document_type(
-        doc
-    )
-
+    content_type = document_type(doc)
 
     citation = metadata.get(
-
         "citation",
-
         "N/A"
-
     )
-
 
     visual_id = metadata.get(
-
         "visual_id",
-
         ""
-
     )
-
 
     chunk_id = metadata.get(
-
         "chunk_id",
-
         ""
-
     )
 
-
-    # --------------------------------------------------------
-    # Visual
-    # --------------------------------------------------------
-
     if content_type in (
-
         "FIGURE",
-
         "TABLE"
-
     ):
 
         location = (
-
             f"{content_type} "
-
             f"{visual_id}, "
-
             f"{source}, "
-
             f"page {page}"
-
         )
-
-
-    # --------------------------------------------------------
-    # Text
-    # --------------------------------------------------------
 
     else:
 
         location = (
-
             f"{source}, "
-
             f"page {page}"
-
         )
-
 
         if chunk_id:
 
             location += (
-
                 f", chunk {chunk_id}"
-
             )
-
 
     return f"""
 [S{index}]
@@ -755,62 +772,63 @@ Content:
 # FORMAT CONTEXT
 # ============================================================
 
-def format_context(
-    docs
-):
+def format_context(docs):
+
+    print("\n" + "=" * 80)
+    print("FORMATTING CONTEXT")
+    print("=" * 80)
 
     context_parts = []
 
-
     for i, doc in enumerate(
-
         docs,
-
         start=1
-
     ):
 
-        context_parts.append(
-
-            format_document(
-
-                doc,
-
-                i
-
-            )
-
+        formatted = format_document(
+            doc,
+            i
         )
 
+        print("\n" + "-" * 80)
+        print(f"CONTEXT SOURCE [S{i}]")
+        print("-" * 80)
 
-    return "\n\n".join(
+        print(formatted)
+
+        context_parts.append(
+            formatted
+        )
+
+    context = "\n\n".join(
         context_parts
     )
 
+    print("\n" + "=" * 80)
+    print("FINAL CONTEXT SENT TO MODEL")
+    print("=" * 80)
+
+    print(context)
+
+    return context
+
 
 # ============================================================
-# BUILD MULTIMODAL MESSAGE
+# BUILD TEXT-ONLY MESSAGE
 # ============================================================
 
 def build_message_content(
-
     question,
-
     docs
-
 ):
 
-    content = []
-
-
-    # --------------------------------------------------------
-    # Text context
-    # --------------------------------------------------------
+    print("\n" + "=" * 80)
+    print("BUILDING TEXT-ONLY MESSAGE")
+    print("=" * 80)
 
     context = format_context(
         docs
     )
-
 
     text = f"""
 Retrieved research-paper context:
@@ -829,150 +847,38 @@ Question:
 
 Instructions:
 
-Answer ONLY using the retrieved research-paper context
-and the supplied figure/table images.
+Answer ONLY using the retrieved research-paper context.
 
 Do not use outside knowledge.
 
-If a retrieved item is a figure or table, inspect its
-actual image before answering.
+Do not guess.
 
 Every factual claim must contain a citation such as [S1].
 
 If the answer cannot be determined from the supplied
-context and images, respond exactly:
+research-paper context, respond exactly:
 
 "I don't have enough information in the provided
 research papers."
 """
 
+    print("\n[MODEL MESSAGE]")
+    print("=" * 80)
+    print(text)
+    print("=" * 80)
 
-    content.append({
+    # IMPORTANT:
+    # TEXT ONLY.
+    # NO IMAGE PROCESSING.
+    # NO BASE64.
+    # NO image_url.
 
-        "type": "text",
-
-        "text": text
-
-    })
-
-
-    # --------------------------------------------------------
-    # Add retrieved images
-    # --------------------------------------------------------
-
-    image_count = 0
-
-
-    for i, doc in enumerate(
-
-        docs,
-
-        start=1
-
-    ):
-
-        if image_count >= (
-            MAX_IMAGES_PER_QUERY
-        ):
-
-            break
-
-
-        content_type = doc.metadata.get(
-
-            "content_type",
-
-            "text"
-
-        )
-
-
-        # Only visual documents
-        # contain image_path
-
-        if content_type not in (
-
-            "figure",
-
-            "table"
-
-        ):
-
-            continue
-
-
-        image_path = doc.metadata.get(
-
-            "image_path"
-
-        )
-
-
-        if not image_path:
-
-            continue
-
-
-        data_url = image_to_data_url(
-
-            image_path
-
-        )
-
-
-        if not data_url:
-
-            continue
-
-
-        image_count += 1
-
-
-        # ----------------------------------------------------
-        # Image identifier
-        # ----------------------------------------------------
-
-        content.append({
-
+    return [
+        {
             "type": "text",
-
-            "text": (
-
-                f"\n[S{i}] "
-                f"This is the actual "
-                f"{content_type} image "
-                f"corresponding to citation [S{i}]. "
-                f"Inspect this image when answering "
-                f"the question.\n"
-
-            )
-
-        })
-
-
-        content.append({
-
-            "type": "image_url",
-
-            "image_url": {
-
-                "url": data_url
-
-            }
-
-        })
-
-
-    print(
-
-        f"[IMAGE] "
-        f"{image_count} visual(s) "
-        f"sent to Gemini."
-
-    )
-
-
-    return content
+            "text": text
+        }
+    ]
 
 
 # ============================================================
@@ -980,103 +886,114 @@ research papers."
 # ============================================================
 
 def validate_citations(
-
     answer,
-
     number_of_sources
-
 ):
 
+    print("\n[CITATION] Validating citations...")
+
     citations = re.findall(
-
         r"\[S(\d+)\]",
-
         answer
-
     )
 
-
-    # --------------------------------------------------------
-    # At least one citation required
-    # --------------------------------------------------------
+    print(
+        "[CITATION] Found:",
+        citations
+    )
 
     if not citations:
 
-        return False
-
-
-    valid_ids = {
-
-        str(i)
-
-        for i in range(
-
-            1,
-
-            number_of_sources + 1
-
+        print(
+            "[CITATION] FAILED: No citations"
         )
 
+        return False
+
+    valid_ids = {
+        str(i)
+        for i in range(
+            1,
+            number_of_sources + 1
+        )
     }
 
-
-    # --------------------------------------------------------
-    # Every citation must exist
-    # --------------------------------------------------------
+    print(
+        "[CITATION] Valid IDs:",
+        valid_ids
+    )
 
     for citation in citations:
 
         if citation not in valid_ids:
 
+            print(
+                "[CITATION] INVALID:",
+                citation
+            )
+
             return False
 
+    print(
+        "[CITATION] Validation successful"
+    )
 
     return True
 
 
 # ============================================================
-# ANSWER
+# ASK
 # ============================================================
 
-def ask(
-    question
-):
+def ask(question):
+
+    print("\n\n" + "#" * 80)
+    print("ASK() START")
+    print("#" * 80)
+
+    print("[ASK] Question:")
+    print(question)
 
     # --------------------------------------------------------
     # Retrieve
     # --------------------------------------------------------
 
+    print("\n[ASK] STEP 1: RETRIEVAL")
+
     docs = retrieve(
         question
     )
 
+    print(
+        "[ASK] Retrieved documents:",
+        len(docs)
+    )
 
     if not docs:
 
-        return (
+        print(
+            "[ASK] NO DOCUMENTS RETRIEVED"
+        )
 
+        return (
             "I don't have enough information "
             "in the provided research papers."
-
         )
 
-
     # --------------------------------------------------------
-    # Build multimodal message
+    # Build message
     # --------------------------------------------------------
 
-    message_content = (
+    print("\n[ASK] STEP 2: BUILD MESSAGE")
 
-        build_message_content(
-
-            question,
-
-            docs
-
-        )
-
+    message_content = build_message_content(
+        question,
+        docs
     )
 
+    print(
+        "[ASK] Message created"
+    )
 
     # --------------------------------------------------------
     # System prompt
@@ -1085,14 +1002,8 @@ def ask(
     system_prompt = """
 You are a research-paper question answering assistant.
 
-SCOPE:
-
-This system is ONLY for answering questions using the
-indexed research papers.
-
-GROUNDING:
-
-Use ONLY the supplied context and supplied images.
+You MUST answer ONLY using the supplied research-paper
+context.
 
 Never use outside knowledge.
 
@@ -1102,35 +1013,12 @@ Never invent facts.
 
 Never invent citations.
 
-Never fabricate figure/table values.
-
-If information is not available in the supplied context
-or visible in the supplied images, do not infer it.
-
-CITATIONS:
-
-Each retrieved source has an ID:
-
-[S1]
-[S2]
-[S3]
-
-etc.
-
-Every factual claim must be supported by one or more
-of these sources.
-
-For example:
-
-The Transformer uses self-attention mechanisms [S1].
-
-For figure/table claims, cite the source corresponding
-to the supplied image.
+Every factual claim must contain a citation such as [S1].
 
 Only use citation IDs that actually exist.
 
 If the question cannot be answered from the supplied
-research papers, respond exactly:
+research-paper context, respond exactly:
 
 "I don't have enough information in the provided
 research papers."
@@ -1140,96 +1028,185 @@ Do not add an explanation to that fallback response.
 Keep answers concise and technically accurate.
 """
 
+    print("\n[ASK] SYSTEM PROMPT:")
+    print(system_prompt)
 
     # --------------------------------------------------------
-    # OpenAI-compatible Gemini call
+    # vLLM request
     # --------------------------------------------------------
 
-    print(
-        "[GEMINI] Generating answer..."
-    )
+    print("\n" + "=" * 80)
+    print("SENDING REQUEST TO vLLM")
+    print("=" * 80)
 
+    print("[VLLM] URL:")
+    print(VLLM_BASE_URL)
 
-    response = client.chat.completions.create(
+    print("[VLLM] Model:")
+    print(VLLM_MODEL)
 
-        model=VLLM_MODEL,
+    print("[VLLM] Calling chat.completions.create()...")
 
-        messages=[
+    try:
 
-            {
+        response = client.chat.completions.create(
 
-                "role": "system",
+            model=VLLM_MODEL,
 
-                "content": system_prompt
+            messages=[
 
-            },
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
 
-            {
+                {
+                    "role": "user",
+                    "content": message_content
+                }
 
-                "role": "user",
+            ]
 
-                "content": message_content
+        )
 
-            }
+        print("\n[VLLM] RESPONSE RECEIVED")
 
-        ]
+        print("=" * 80)
 
-    )
+        print("[VLLM RAW RESPONSE OBJECT]")
+        print(response)
 
+        print("=" * 80)
 
-    answer = (
+    except Exception as e:
 
-        response
-        .choices[0]
-        .message
-        .content
-        .strip()
+        print("\n" + "!" * 80)
+        print("VLLM REQUEST FAILED")
+        print("!" * 80)
 
-    )
+        print("[ERROR TYPE]")
+        print(type(e))
 
+        print("\n[ERROR]")
+        print(repr(e))
+
+        print("\n[TRACEBACK]")
+        traceback.print_exc()
+
+        return (
+            f"vLLM request failed: {e}"
+        )
 
     # --------------------------------------------------------
-    # Gemini fallback
+    # Extract answer
+    # --------------------------------------------------------
+
+    print("\n[ASK] Extracting model answer...")
+
+    try:
+
+        answer = (
+            response
+            .choices[0]
+            .message
+            .content
+        )
+
+        print(
+            "[ASK] Raw content type:",
+            type(answer)
+        )
+
+        print("\n[ASK] RAW MODEL ANSWER:")
+        print(repr(answer))
+
+        if answer is None:
+
+            print(
+                "[ERROR] Model returned None content"
+            )
+
+            return (
+                "vLLM returned an empty response."
+            )
+
+        answer = answer.strip()
+
+    except Exception as e:
+
+        print(
+            "[ERROR] Could not extract answer:",
+            repr(e)
+        )
+
+        traceback.print_exc()
+
+        return (
+            f"Could not extract vLLM response: {e}"
+        )
+
+    # --------------------------------------------------------
+    # Empty answer
+    # --------------------------------------------------------
+
+    if not answer:
+
+        print(
+            "[ERROR] Model returned EMPTY answer"
+        )
+
+        return (
+            "vLLM returned an empty answer."
+        )
+
+    # --------------------------------------------------------
+    # Fallback
     # --------------------------------------------------------
 
     if (
-
         "I don't have enough information"
-
         in answer
-
     ):
 
-        return answer
+        print(
+            "[ASK] Model returned fallback response"
+        )
 
+        return answer
 
     # --------------------------------------------------------
     # Citation validation
     # --------------------------------------------------------
 
+    print(
+        "\n[ASK] STEP 3: CITATION VALIDATION"
+    )
+
     if not validate_citations(
-
         answer,
-
         len(docs)
-
     ):
 
         print(
-
-            "[WARNING] "
-            "Citation validation failed."
-
+            "[WARNING] Citation validation failed"
         )
 
+        print(
+            "[WARNING] Returning fallback"
+        )
 
         return (
-
             "I don't have enough information "
             "in the provided research papers."
-
         )
 
+    print(
+        "[ASK] Citation validation passed"
+    )
+
+    print("\n" + "#" * 80)
+    print("ASK() FINISHED SUCCESSFULLY")
+    print("#" * 80)
 
     return answer
 
@@ -1238,96 +1215,21 @@ Keep answers concise and technically accurate.
 # DEBUG RETRIEVAL
 # ============================================================
 
-def debug_retrieval(
-    question
-):
+def debug_retrieval(question):
+
+    print("\n" + "=" * 80)
+    print("DEBUG RETRIEVAL")
+    print("=" * 80)
 
     docs = retrieve(
         question
     )
 
+    print("\n" + "=" * 80)
+    print("DEBUG RETRIEVAL COMPLETE")
+    print("=" * 80)
 
-    print()
-    print(
-        "=" * 70
-    )
-
-    print(
-        "RETRIEVED SOURCES"
-    )
-
-    print(
-        "=" * 70
-    )
-
-
-    for i, doc in enumerate(
-
-        docs,
-
-        start=1
-
-    ):
-
-        metadata = doc.metadata
-
-
-        print()
-
-        print(
-            f"[S{i}] "
-            f"{document_type(doc)}"
-        )
-
-
-        print(
-            "Source:",
-            metadata.get(
-                "source"
-            )
-        )
-
-
-        print(
-            "Page:",
-            metadata.get(
-                "page"
-            )
-        )
-
-
-        print(
-            "Citation:",
-            metadata.get(
-                "citation"
-            )
-        )
-
-
-        print(
-            "Visual ID:",
-            metadata.get(
-                "visual_id"
-            )
-        )
-
-
-        print(
-            "Image:",
-            metadata.get(
-                "image_path"
-            )
-        )
-
-
-        print(
-            "-" * 60
-        )
-
-
-        print(
-            doc.page_content[:700]
-        )
+    return docs
 
 
 # ============================================================
@@ -1336,29 +1238,22 @@ def debug_retrieval(
 
 if __name__ == "__main__":
 
-    print()
+    print("\n")
+    print("=" * 80)
+    print("RESEARCH PAPER TEXT-ONLY RAG DEBUGGER")
+    print("=" * 80)
+
     print(
-        "=" * 70
+        "LangChain + Chroma + MiniLM + BM25 + vLLM"
     )
 
     print(
-        "RESEARCH PAPER MULTIMODAL RAG"
+        "FIGURES/TABLES ARE NOT BEING SENT TO THE MODEL"
     )
 
-    print(
-        "LangChain + Chroma + MiniLM + BM25 + Gemini"
-    )
-
-    print(
-        "Text + Figure + Table Retrieval"
-    )
-
-    print(
-        "=" * 70
-    )
+    print("=" * 80)
 
     print()
-
     print(
         "Scope: Research-paper based queries only."
     )
@@ -1367,36 +1262,72 @@ if __name__ == "__main__":
         "Type 'exit' to quit."
     )
 
+    print()
 
     while True:
 
-        question = input(
+        try:
 
-            "\nQuestion: "
+            question = input(
+                "\nQuestion: "
+            ).strip()
 
-        ).strip()
+        except KeyboardInterrupt:
 
-
-        if question.lower() == "exit":
+            print(
+                "\n\nExiting..."
+            )
 
             break
 
+        except EOFError:
+
+            print(
+                "\n\nEOF received. Exiting..."
+            )
+
+            break
+
+        if question.lower() == "exit":
+
+            print(
+                "\nExiting..."
+            )
+
+            break
 
         if not question:
 
+            print(
+                "[DEBUG] Empty question. Try again."
+            )
+
             continue
 
+        try:
 
-        answer = ask(
-            question
-        )
+            answer = ask(
+                question
+            )
 
+            print("\n")
+            print("=" * 80)
+            print("FINAL ANSWER")
+            print("=" * 80)
 
-        print()
-        print(
-            "Answer:"
-        )
+            print(answer)
 
-        print(
-            answer
-        )
+            print("=" * 80)
+
+        except Exception as e:
+
+            print("\n" + "!" * 80)
+            print("UNEXPECTED ERROR IN MAIN LOOP")
+            print("!" * 80)
+
+            print(
+                "[ERROR]",
+                repr(e)
+            )
+
+            traceback.print_exc()
