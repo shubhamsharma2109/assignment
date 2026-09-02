@@ -98,6 +98,7 @@ embeddings = HuggingFaceEmbeddings(
     model_name=EMBEDDING_MODEL,
     model_kwargs={"device": DEVICE},
     encode_kwargs={"normalize_embeddings": True},
+    hf_hub_download=True
 )
 
 # ============================================================

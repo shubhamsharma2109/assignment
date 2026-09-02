@@ -26,15 +26,7 @@ from langchain_core.documents import Document
 load_dotenv()
 
 
-GEMINI_API_KEY = os.getenv(
-    "GEMINI_API_KEY"
-)
 
-if not GEMINI_API_KEY:
-
-    raise RuntimeError(
-        "GEMINI_API_KEY is missing from .env"
-    )
 
 
 # ------------------------------------------------------------
@@ -55,16 +47,6 @@ EMBEDDING_MODEL = (
 )
 
 
-# ------------------------------------------------------------
-# Gemini
-# ------------------------------------------------------------
-
-GEMINI_MODEL = "gemini-3.7-flash"
-
-GEMINI_BASE_URL = (
-    "https://generativelanguage.googleapis.com/"
-    "v1beta/openai/"
-)
 
 
 # ------------------------------------------------------------
@@ -88,14 +70,30 @@ MAX_IMAGES_PER_QUERY = 3
 # ============================================================
 # GEMINI — OPENAI COMPATIBLE CLIENT
 # ============================================================
+# ============================================================
+# vLLM — OPENAI COMPATIBLE CLIENT
+# ============================================================
+
+VLLM_BASE_URL = os.getenv(
+    "VLLM_BASE_URL",
+    "http://127.0.0.1:8000/v1"
+)
+
+VLLM_MODEL = os.getenv(
+    "VLLM_MODEL",
+    "Qwen/Qwen2.5-VL-7B-Instruct-AWQ"
+)
+
+VLLM_API_KEY = os.getenv(
+    "VLLM_API_KEY",
+    "EMPTY"
+)
 
 client = OpenAI(
-
-    api_key=GEMINI_API_KEY,
-
-    base_url=GEMINI_BASE_URL
-
+    api_key=VLLM_API_KEY,
+    base_url=VLLM_BASE_URL,
 )
+
 
 
 # ============================================================
@@ -1154,7 +1152,7 @@ Keep answers concise and technically accurate.
 
     response = client.chat.completions.create(
 
-        model=GEMINI_MODEL,
+        model=VLLM_MODEL,
 
         messages=[
 
