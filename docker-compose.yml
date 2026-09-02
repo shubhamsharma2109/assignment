@@ -41,22 +41,23 @@ services:
     build: .
     container_name: rag-ingest
     command: python ingestion.py
-    
-    # --- ADDED THESE TWO BLOCKS TO FIX THE EXIT 136 CRASH ---
-    shm_size: '8gb'  # Prevents PyTorch from running out of shared memory
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]  # Gives DocLayout-YOLO access to the GPU
-    # --------------------------------------------------------
-
+    shm_size: '8gb'  # Harmless to keep; guards against SIGBUS (135) from
+                      # shared-memory exhaustion. Not related to exit 136.
+    # NOTE: no GPU reservation here on purpose. The Dockerfile installs
+    # CPU-only torch and neither ingest nor rag-api use a GPU directly --
+    # all LLM calls go over the network to the `vllm` service, which is
+    # the only container that actually needs `deploy.resources`.
     environment:
       - VLLM_BASE_URL=http://vllm:8000/v1
       - VLLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct-AWQ
       - VLLM_API_KEY=EMPTY
+      # Caps BLAS/OpenMP thread pools so numpy/torch/sentence-transformers
+      # don't hit the OpenBLAS thread-count-detection SIGFPE bug in
+      # constrained/cgroup-limited containers (this was your exit 136).
+      - OMP_NUM_THREADS=1
+      - OPENBLAS_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - NUMEXPR_NUM_THREADS=1
     volumes:
       - ./data:/app/data
       - ./chroma_db:/app/chroma_db
@@ -77,6 +78,12 @@ services:
       - VLLM_BASE_URL=http://vllm:8000/v1
       - VLLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct-AWQ
       - VLLM_API_KEY=EMPTY
+      # Same BLAS/OMP thread cap as `ingest` -- rag-api also loads the
+      # HuggingFace embedding model, so it's exposed to the same bug.
+      - OMP_NUM_THREADS=1
+      - OPENBLAS_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - NUMEXPR_NUM_THREADS=1
     volumes:
       - ./chroma_db:/app/chroma_db
       - ./extracted_visuals:/app/extracted_visuals
