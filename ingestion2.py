@@ -28,10 +28,7 @@ from langchain_chroma import Chroma
 
 load_dotenv()
 
-GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY")
 
-if not GOOGLE_API_KEY:
-    raise RuntimeError("GEMINI_API_KEY is missing from .env")
 
 DATA_DIR = "data"
 CHROMA_DIR = "chroma_db"
