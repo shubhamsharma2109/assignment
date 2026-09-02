@@ -995,6 +995,38 @@ def validate_citations(
 # CITATION LEGEND (for terminal display)
 # ============================================================
 
+# ============================================================
+# EXTRACT CITATION IDS
+# ============================================================
+
+def extract_cited_ids(answer):
+    """
+    Extract citation source numbers from the model answer.
+
+    Examples:
+        "PEFT is efficient [S1]." -> [1]
+        "This improves accuracy [S2] and reduces cost [S4]." -> [2, 4]
+
+    Supports both:
+        [S1]
+        (S1)
+
+    Returns:
+        Sorted list of unique integer source IDs.
+    """
+
+    if not answer:
+        return []
+
+    cited_ids = re.findall(
+        r"[\[\(]S(\d+)[\]\)]",
+        answer
+    )
+
+    return sorted(
+        {int(x) for x in cited_ids}
+    )
+
 def build_citation_legend(docs):
 
     """
