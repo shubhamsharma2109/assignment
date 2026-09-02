@@ -508,6 +508,18 @@ STRICT RULES:
 
 10. Keep the answer academically clear
     and concise.
+
+11. Citation tags MUST use square brackets
+    exactly as shown: [S1], [S2], [S3].
+    Do NOT use parentheses like (S1) or
+    any other format. Square brackets only.
+
+Example of the required citation format:
+
+"BERT is pre-trained using masked language
+modeling and next sentence prediction [S1].
+Fine-tuning then adapts the pre-trained
+parameters to each downstream task [S2]."
 """
 
     user_prompt = f"""
@@ -524,6 +536,11 @@ Research-paper context:
 Answer using ONLY the supplied context.
 
 Include citations such as [S1] and [S2].
+
+REMINDER: every citation tag must use square
+brackets exactly like [S1] — never (S1) or
+any other format. Do not skip a citation on
+any factual sentence.
 """
 
     answer = call_llm(
