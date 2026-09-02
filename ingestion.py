@@ -26,6 +26,10 @@ from langchain_chroma import Chroma
 # CONFIG
 # ============================================================
 
+import cv2
+cv2.setNumThreads(1)
+torch.set_num_threads(1)
+
 load_dotenv()
 
 
