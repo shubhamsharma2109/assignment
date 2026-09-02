@@ -189,18 +189,15 @@ def _parse_result(image, result):
 
     return detections
 
-
 def detect_visuals_batch(images):
     """
     Run DocLayout-YOLO across many page images at once, in chunks of
-    YOLO_BATCH_SIZE. Preprocessing (letterbox resize, normalization) and
-    postprocessing (grid decode, NMS) are handled internally by the
-    ultralytics-based SDK.
-
-    Returns a list of detection-lists, one per input image, in the same
-    order as `images`.
+    YOLO_BATCH_SIZE.
     """
     all_detections = []
+    
+    # If device is CPU, we MUST disable half-precision to prevent SIGFPE crashes
+    is_cpu = (DEVICE == "cpu")
 
     for batch_start in range(0, len(images), YOLO_BATCH_SIZE):
         batch = images[batch_start: batch_start + YOLO_BATCH_SIZE]
@@ -210,6 +207,7 @@ def detect_visuals_batch(images):
             imgsz=DOCLAYOUT_IMGSZ,
             conf=CONFIDENCE_THRESHOLD,
             device=DEVICE,
+            half=(not is_cpu),     # <--- DYNAMICALLY HANDLED HERE
             verbose=False,
         )
 
@@ -224,7 +222,6 @@ def detect_visuals_batch(images):
     total = sum(len(d) for d in all_detections)
     print(f"[DocLayout-YOLO] {total} visual regions across {len(images)} pages")
     return all_detections
-
 # ============================================================
 # CROP VISUAL
 # ============================================================
