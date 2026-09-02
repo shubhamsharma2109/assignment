@@ -134,3 +134,19 @@ services:
     depends_on:
       vllm:
         condition: service_healthy
+  
+  streamlit:
+    build: .
+    container_name: rag-streamlit
+    restart: unless-stopped
+    command: streamlit run streamlit_app.py --server.address=0.0.0.0 --server.port=8501
+    ports:
+      - "8501:8501"
+    environment:
+      - RAG_API_URL=http://rag-api:8080
+    volumes:
+      - ./extracted_visuals:/app/extracted_visuals
+    depends_on:
+      rag-api:
+        condition: service_started
+

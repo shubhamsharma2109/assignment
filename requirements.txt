@@ -25,3 +25,7 @@ pymupdf
 doclayout-yolo
 pillow
 
+streamlit
+requests
+
+

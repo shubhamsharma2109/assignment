@@ -21,6 +21,6 @@ RUN pip install --no-cache-dir \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY rag.py langgraph_rag.py api.py ingestion.py .
+COPY rag.py langgraph_rag.py api.py ingestion.py   streamlit_app.py .
 
 CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8080"]
