@@ -26,9 +26,6 @@ from langchain_core.documents import Document
 load_dotenv()
 
 
-
-
-
 # ------------------------------------------------------------
 # Chroma
 # ------------------------------------------------------------
@@ -45,8 +42,6 @@ COLLECTION_NAME = "research_papers"
 EMBEDDING_MODEL = (
     "sentence-transformers/all-MiniLM-L6-v2"
 )
-
-
 
 
 # ------------------------------------------------------------
@@ -67,9 +62,6 @@ BM25_WEIGHT = 0.3
 MAX_IMAGES_PER_QUERY = 3
 
 
-# ============================================================
-# GEMINI — OPENAI COMPATIBLE CLIENT
-# ============================================================
 # ============================================================
 # vLLM — OPENAI COMPATIBLE CLIENT
 # ============================================================
@@ -93,7 +85,6 @@ client = OpenAI(
     api_key=VLLM_API_KEY,
     base_url=VLLM_BASE_URL,
 )
-
 
 
 # ============================================================
@@ -251,7 +242,7 @@ def encode_image(
     Convert an image file to base64.
 
     This follows the OpenAI-compatible
-    multimodal API format used by Gemini.
+    multimodal API format used by vLLM.
     """
 
     if not image_path:
@@ -791,6 +782,7 @@ def format_context(
 # ============================================================
 # BUILD MULTIMODAL MESSAGE
 # ============================================================
+
 def build_message_content(question, docs):
 
     content = []
@@ -910,6 +902,8 @@ this for any sentence. Now write your answer to the question.
     print(f"[IMAGE] {image_count} visual(s) sent to vLLM.")
 
     return content
+
+
 # ============================================================
 # CITATION VALIDATION
 # ============================================================
@@ -970,12 +964,92 @@ def validate_citations(
 
 
 # ============================================================
+# CITATION LEGEND (for terminal display)
+# ============================================================
+
+def build_citation_legend(docs):
+
+    """
+    Build a lookup of {index: source_details} so the CLI can
+    print a full breakdown (source, page, content type, and
+    image path when applicable) for every [Sx] the model cites.
+    """
+
+    legend = {}
+
+    for i, doc in enumerate(docs, start=1):
+
+        metadata = doc.metadata
+
+        legend[i] = {
+            "content_type": document_type(doc),
+            "source": metadata.get("source", "Unknown"),
+            "page": metadata.get("page", "Unknown"),
+            "visual_id": metadata.get("visual_id", ""),
+            "image_path": metadata.get("image_path", ""),
+            "citation": metadata.get("citation", "N/A"),
+        }
+
+    return legend
+
+
+def print_citations_used(answer, legend):
+
+    """
+    Print a full breakdown of every [Sx] tag that actually
+    appears in the model's answer: source file, page number,
+    content type, and image path (for figures/tables).
+    """
+
+    used_ids = sorted(
+        {int(x) for x in re.findall(r"\[S(\d+)\]", answer)}
+    )
+
+    if not used_ids:
+        return
+
+    print()
+    print("-" * 70)
+    print("SOURCES CITED")
+    print("-" * 70)
+
+    for sid in used_ids:
+
+        info = legend.get(sid)
+
+        if not info:
+            continue
+
+        print(f"\n[S{sid}] ({info['content_type']})")
+        print(f"  Source : {info['source']}")
+        print(f"  Page   : {info['page']}")
+
+        if info["content_type"] in ("FIGURE", "TABLE"):
+            print(f"  Visual ID : {info['visual_id'] or 'N/A'}")
+            print(f"  Image     : {info['image_path'] or 'N/A'}")
+
+        if info["citation"] and info["citation"] != "N/A":
+            print(f"  Citation  : {info['citation']}")
+
+    print()
+    print("-" * 70)
+
+
+# ============================================================
 # ANSWER
 # ============================================================
 
 def ask(
     question
 ):
+
+    """
+    Returns a tuple: (answer_text, docs_used)
+
+    docs_used is [] whenever the answer is the
+    "not enough information" fallback, so callers can check
+    `if docs:` before building/printing a citation legend.
+    """
 
     # --------------------------------------------------------
     # Retrieve
@@ -991,7 +1065,9 @@ def ask(
         return (
 
             "I don't have enough information "
-            "in the provided research papers."
+            "in the provided research papers.",
+
+            []
 
         )
 
@@ -1014,12 +1090,7 @@ def ask(
 
 
     # --------------------------------------------------------
-    # System prompt
-    # --------------------------------------------------------
-
-
-    # --------------------------------------------------------
-    # OpenAI-compatible Gemini call
+    # OpenAI-compatible vLLM call
     # --------------------------------------------------------
 
     print(
@@ -1033,7 +1104,6 @@ def ask(
 
         messages=[
 
-          
             {
 
                 "role": "user",
@@ -1042,7 +1112,9 @@ def ask(
 
             }
 
-        ]
+        ],
+
+        temperature=0,
 
     )
 
@@ -1057,14 +1129,13 @@ def ask(
 
     )
 
-  
 
     print("\n[vLLM RAW ANSWER]")
     print(repr(answer))
     print()
 
     # --------------------------------------------------------
-    # Gemini fallback
+    # Model self-reported fallback
     # --------------------------------------------------------
 
     if (
@@ -1075,7 +1146,7 @@ def ask(
 
     ):
 
-        return answer
+        return answer, []
 
 
     # --------------------------------------------------------
@@ -1101,12 +1172,14 @@ def ask(
         return (
 
             "I don't have enough information "
-            "in the provided research papers."
+            "in the provided research papers.",
+
+            []
 
         )
 
 
-    return answer
+    return answer, docs
 
 
 # ============================================================
@@ -1221,7 +1294,7 @@ if __name__ == "__main__":
     )
 
     print(
-        "LangChain + Chroma + MiniLM + BM25 + Gemini"
+        "LangChain + Chroma + MiniLM + BM25 + vLLM"
     )
 
     print(
@@ -1262,7 +1335,7 @@ if __name__ == "__main__":
             continue
 
 
-        answer = ask(
+        answer, docs = ask(
             question
         )
 
@@ -1275,3 +1348,9 @@ if __name__ == "__main__":
         print(
             answer
         )
+
+        if docs:
+
+            legend = build_citation_legend(docs)
+
+            print_citations_used(answer, legend)
