@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pymupdf
 import torch
+torch.backends.mkldnn.enabled = False
 
 from PIL import Image
 from dotenv import load_dotenv
