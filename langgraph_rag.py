@@ -36,6 +36,7 @@ from rag import (
     build_citation_legend,
     print_citations_used,
     generate_answer,
+    build_image_content_blocks,
 )
 
 
@@ -119,6 +120,60 @@ def call_llm(
             {
                 "role": "user",
                 "content": combined_prompt,
+            },
+
+        ],
+
+        temperature=temperature,
+
+    )
+
+    return (
+        response
+        .choices[0]
+        .message
+        .content
+        .strip()
+    )
+
+
+def call_llm_multimodal(
+    text_prompt: str,
+    image_blocks: list,
+    temperature: float = 0,
+) -> str:
+
+    """
+    Same as call_llm, but attaches figure/table image content
+    blocks (from build_image_content_blocks) alongside the text
+    prompt in a single "user" message. Used by relevance_node
+    and verification_node so they can judge claims about a
+    figure/table against the actual image, not just its text
+    metadata — the same images answer_node already sees via
+    generate_answer.
+
+    If image_blocks is empty, this behaves like a plain
+    text-only call.
+    """
+
+    content = [
+        {
+            "type": "text",
+            "text": text_prompt.strip(),
+        }
+    ]
+
+    content.extend(image_blocks)
+
+    response = client.chat.completions.create(
+
+        model=VLLM_MODEL,
+
+        messages=[
+
+            {
+                "role": "user",
+                "content": content,
             },
 
         ],
@@ -310,11 +365,16 @@ def relevance_node(
         documents
     )
 
+    image_blocks, _ = build_image_content_blocks(
+        documents
+    )
+
     system_prompt = """
 You are a strict relevance grader for
 a research-paper RAG system.
 
 Determine whether the retrieved chunks
+(and any attached figure/table images)
 contain enough information to answer the
 question.
 
@@ -327,8 +387,12 @@ or
 NOT_RELEVANT
 
 Choose RELEVANT only when the retrieved
-text provides evidence that can directly
-answer the question.
+text or images provide evidence that can
+directly answer the question. If a figure
+or table image is attached, inspect it
+before deciding — the answer may depend
+entirely on what the image shows rather
+than on the surrounding text.
 
 Do not use outside knowledge.
 """
@@ -344,9 +408,9 @@ Retrieved research-paper chunks:
 {context}
 """
 
-    result = call_llm(
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
+    result = call_llm_multimodal(
+        text_prompt=f"{system_prompt.strip()}\n\n{'=' * 60}\n\n{user_prompt.strip()}",
+        image_blocks=image_blocks,
     ).upper()
 
     relevant = (
@@ -510,31 +574,40 @@ def verification_node(
         documents
     )
 
+    image_blocks, _ = build_image_content_blocks(
+        documents
+    )
+
     system_prompt = """
 You are a strict hallucination checker
 for a research-paper RAG system.
 
 Determine whether the generated answer
 is completely supported by the retrieved
-research-paper context.
+research-paper context and any attached
+figure/table images.
 
 Check:
 
 1. Every factual claim.
 
-2. Whether the context supports each claim.
+2. Whether the context or an attached image
+   supports each claim. If a claim describes
+   the contents of a figure or table, check
+   it against the actual image, not just the
+   surrounding caption text.
 
 3. Whether citations refer to real sources.
 
 4. Whether the answer contains information
-   not present in the context.
+   not present in the context or images.
 
 5. Whether the answer fabricates research
    findings, methods, datasets, numbers,
    or conclusions.
 
 6. Whether the answer contradicts the
-   retrieved context.
+   retrieved context or images.
 
 Return exactly:
 
@@ -545,7 +618,10 @@ or
 UNSUPPORTED
 
 If even one important factual claim is
-unsupported, return UNSUPPORTED.
+unsupported, return UNSUPPORTED. But do
+not mark a claim UNSUPPORTED just because
+it describes something only visible in an
+attached image — inspect the image first.
 
 Do not use outside knowledge.
 """
@@ -566,9 +642,9 @@ Generated answer:
 {answer}
 """
 
-    result = call_llm(
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
+    result = call_llm_multimodal(
+        text_prompt=f"{system_prompt.strip()}\n\n{'=' * 60}\n\n{user_prompt.strip()}",
+        image_blocks=image_blocks,
     ).upper()
 
     verified = (

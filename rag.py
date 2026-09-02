@@ -783,6 +783,70 @@ def format_context(
 # BUILD MULTIMODAL MESSAGE
 # ============================================================
 
+def build_image_content_blocks(docs):
+
+    """
+    Builds the list of {"type": "text"/"image_url"} content
+    blocks for the figure/table images among the given docs,
+    each preceded by a text label identifying which [Sx] it
+    corresponds to.
+
+    Shared by build_message_content (answer generation) and
+    rag_graph.py's relevance_node / verification_node, so those
+    checks can see the same visual evidence the answer was
+    actually grounded in — otherwise a correct answer about a
+    figure's contents gets marked NOT_RELEVANT or UNSUPPORTED
+    simply because the text-only context never described what's
+    in the image.
+
+    Returns (blocks, image_count).
+    """
+
+    blocks = []
+
+    image_count = 0
+
+    for i, doc in enumerate(docs, start=1):
+
+        if image_count >= MAX_IMAGES_PER_QUERY:
+            break
+
+        content_type = doc.metadata.get("content_type", "text")
+
+        if content_type not in ("figure", "table"):
+            continue
+
+        image_path = doc.metadata.get("image_path")
+
+        if not image_path:
+            continue
+
+        data_url = image_to_data_url(image_path)
+
+        if not data_url:
+            continue
+
+        image_count += 1
+
+        blocks.append({
+            "type": "text",
+            "text": (
+                f"\n[S{i}] This is the actual {content_type} image "
+                f"corresponding to citation [S{i}]. Inspect this "
+                f"image when answering the question.\n"
+            )
+        })
+
+        blocks.append({
+            "type": "image_url",
+            "image_url": {
+                "url": data_url
+            }
+        })
+
+    return blocks, image_count
+
+
 def build_message_content(question, docs):
 
     content = []
@@ -859,45 +923,9 @@ this for any sentence. Now write your answer to the question.
     # Add retrieved images
     # --------------------------------------------------------
 
-    image_count = 0
+    image_blocks, image_count = build_image_content_blocks(docs)
 
-    for i, doc in enumerate(docs, start=1):
-
-        if image_count >= MAX_IMAGES_PER_QUERY:
-            break
-
-        content_type = doc.metadata.get("content_type", "text")
-
-        if content_type not in ("figure", "table"):
-            continue
-
-        image_path = doc.metadata.get("image_path")
-
-        if not image_path:
-            continue
-
-        data_url = image_to_data_url(image_path)
-
-        if not data_url:
-            continue
-
-        image_count += 1
-
-        content.append({
-            "type": "text",
-            "text": (
-                f"\n[S{i}] This is the actual {content_type} image "
-                f"corresponding to citation [S{i}]. Inspect this "
-                f"image when answering the question.\n"
-            )
-        })
-
-        content.append({
-            "type": "image_url",
-            "image_url": {
-                "url": data_url
-            }
-        })
+    content.extend(image_blocks)
 
     print(f"[IMAGE] {image_count} visual(s) sent to vLLM.")
 
