@@ -1,0 +1,14 @@
+pymupdf
+torch
+Pillow
+python-dotenv
+huggingface-hub
+doclayout-yolo
+ultralytics
+langchain-core
+langchain-text-splitters
+langchain-huggingface
+langchain-openai
+langchain-chroma
+chromadb
+sentence-transformers
