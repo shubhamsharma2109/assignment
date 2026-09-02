@@ -14,23 +14,27 @@ from langgraph.graph import StateGraph, START, END
 #   - VLLM_MODEL      (model name string)
 #   - retrieve()      (hybrid dense + BM25 retrieval function,
 #                       returns List[Document])
-#   - format_context() (turns retrieved docs into [Sx] blocks)
+#   - format_context()          (turns retrieved docs into
+#                                 [Sx] blocks)
+#   - build_citation_legend()   (maps [Sx] -> source/page/image
+#                                 details for display)
+#   - print_citations_used()    (prints the citation breakdown
+#                                 for whichever [Sx] tags appear
+#                                 in a given answer)
 #
-# This replaces the old `llm` / `hybrid_retriever` LangChain
-# objects, which rag.py does not define when using the raw
-# vLLM OpenAI-compatible client.
-#
-# format_context is imported (not reimplemented here) so that
-# citation formatting — page numbers, content type labels for
-# figures/tables, visual IDs, citation metadata — is identical
-# between rag.py's direct CLI and this graph. Two independent
-# formatters would drift apart over time.
+# All of these are imported (not reimplemented here) so that
+# citation formatting and display — page numbers, content type
+# labels for figures/tables, visual IDs, citation metadata —
+# is identical between rag.py's direct CLI and this graph. Two
+# independent implementations would drift apart over time.
 
 from rag import (
     client,
     VLLM_MODEL,
     retrieve,
     format_context,
+    build_citation_legend,
+    print_citations_used,
 )
 
 
@@ -64,6 +68,8 @@ class RAGState(TypedDict, total=False):
     verified: bool
 
     final_answer: str
+
+    documents_used: List[Document]
 
 
 # ============================================================
@@ -699,7 +705,15 @@ def finish_node(
 
     return {
         "final_answer":
-            state["answer"]
+            state["answer"],
+
+        # Carried through so the caller (CLI or otherwise) can
+        # build a citation legend for whichever [Sx] tags show
+        # up in the final answer. Only set on this successful,
+        # verified path — general/fallback answers have no
+        # grounded documents to cite.
+        "documents_used":
+            state["documents"],
     }
 
 
@@ -864,6 +878,15 @@ def ask(
     question: str
 ):
 
+    """
+    Returns a tuple: (final_answer, documents_used)
+
+    documents_used is [] whenever the answer came from the
+    general or fallback nodes (no grounded citations to show).
+    It is only populated on the successful, verified
+    research-paper answer path.
+    """
+
     initial_state = {
 
         "question": question,
@@ -882,7 +905,10 @@ def ask(
         initial_state
     )
 
-    return result["final_answer"]
+    return (
+        result["final_answer"],
+        result.get("documents_used", []),
+    )
 
 
 # ============================================================
@@ -926,7 +952,7 @@ if __name__ == "__main__":
 
             continue
 
-        answer = ask(
+        answer, docs = ask(
             question
         )
 
@@ -935,3 +961,9 @@ if __name__ == "__main__":
         )
 
         print(answer)
+
+        if docs:
+
+            legend = build_citation_legend(docs)
+
+            print_citations_used(answer, legend)
