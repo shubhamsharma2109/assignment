@@ -51,6 +51,7 @@ services:
       - VLLM_BASE_URL=http://vllm:8000/v1
       - VLLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct-AWQ
       - VLLM_API_KEY=EMPTY
+      - MALLOC_ARENA_MAX=1
       # Caps BLAS/OpenMP thread pools so numpy/torch/sentence-transformers
       # don't hit the OpenBLAS thread-count-detection SIGFPE bug in
       # constrained/cgroup-limited containers (this was your exit 136).
@@ -78,6 +79,7 @@ services:
       - VLLM_BASE_URL=http://vllm:8000/v1
       - VLLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct-AWQ
       - VLLM_API_KEY=EMPTY
+      - MALLOC_ARENA_MAX=1
       # Same BLAS/OMP thread cap as `ingest` -- rag-api also loads the
       # HuggingFace embedding model, so it's exposed to the same bug.
       - OMP_NUM_THREADS=1
