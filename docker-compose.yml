@@ -27,7 +27,7 @@ services:
       --port 8000
       --gpu-memory-utilization 0.75
       --max-model-len 8192
-      --limit-mm-per-prompt '{"image":3,"video":0}'
+      --limit-mm-per-prompt '{"image":1,"video":0}'
       --mm-processor-kwargs '{"max_pixels":401408,"min_pixels":3136}'
       --enforce-eager
     healthcheck:
