@@ -37,11 +37,7 @@ VISUALS_DIR = "extracted_visuals"  # cropped figure/table images saved here
 
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
-# NOTE: verify this model name is current for your Gemini access -
-# check https://ai.google.dev/gemini-api/docs/models before running.
-GEMINI_MODEL = "gemini-3.5-flash"
 
-GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 # DocLayout-YOLO settings
 DOCLAYOUT_REPO_ID = "juliozhao/DocLayout-YOLO-DocStructBench"
@@ -82,9 +78,14 @@ VLLM_MODEL = os.getenv(
     "Qwen/Qwen2.5-VL-7B-Instruct-AWQ",
 )
 
+VLLM_API_KEY = os.getenv(
+    "VLLM_API_KEY",
+    "EMPTY",
+)
+
 llm = ChatOpenAI(
     model=VLLM_MODEL,
-    api_key="EMPTY",
+    api_key=VLLM_API_KEY,
     base_url=VLLM_BASE_URL,
     temperature=0,
 )
@@ -98,7 +99,6 @@ embeddings = HuggingFaceEmbeddings(
     model_name=EMBEDDING_MODEL,
     model_kwargs={"device": DEVICE},
     encode_kwargs={"normalize_embeddings": True},
-    hf_hub_download=True
 )
 
 # ============================================================
