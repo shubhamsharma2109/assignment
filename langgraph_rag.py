@@ -222,8 +222,9 @@ limitations, findings, related work, etc.
 
 
 GENERAL:
-Simple conversation or general questions
+Simple conversation or chit chat questions
 that do not require the research-paper corpus.
+ANything which is technical even if you know should not be categorised as GENERAL
 
 Examples:
 - Hello
