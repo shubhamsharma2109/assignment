@@ -1,6 +1,8 @@
-version: '3.8'
-
 services:
+
+  # ============================================================
+  # vLLM - Long-running LLM/VLM server
+  # ============================================================
   vllm:
     image: vllm/vllm-openai:latest
     container_name: vllm-server
@@ -36,20 +38,36 @@ services:
       --enforce-eager
 
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\")'"]
+      test:
+        [
+          "CMD-SHELL",
+          "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\")'"
+        ]
       interval: 15s
       timeout: 10s
       start_period: 60s
       retries: 30
 
 
+  # ============================================================
+  # INGESTION - One-shot job
+  #
+  # NOT started by:
+  #   docker compose up
+  #
+  # Run explicitly with:
+  #   docker compose --profile ingest run --rm ingest
+  # ============================================================
   ingest:
+    profiles:
+      - ingest
+
     build: .
     container_name: rag-ingest
 
     command: python ingestion.py
 
-    # Give DocLayout-YOLO access to NVIDIA GPU
+    # GPU for DocLayout-YOLO
     gpus: all
 
     shm_size: '8gb'
@@ -58,6 +76,7 @@ services:
       - VLLM_BASE_URL=http://vllm:8000/v1
       - VLLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct-AWQ
       - VLLM_API_KEY=EMPTY
+
       - MALLOC_ARENA_MAX=1
 
       # Thread limits
@@ -81,6 +100,9 @@ services:
         condition: service_healthy
 
 
+  # ============================================================
+  # RAG API - Long-running API server
+  # ============================================================
   rag-api:
     build: .
     container_name: rag-api
@@ -95,9 +117,10 @@ services:
       - VLLM_BASE_URL=http://vllm:8000/v1
       - VLLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct-AWQ
       - VLLM_API_KEY=EMPTY
+
       - MALLOC_ARENA_MAX=1
 
-      # CPU thread limits
+      # CPU thread limits for embeddings/API
       - OMP_NUM_THREADS=1
       - OPENBLAS_NUM_THREADS=1
       - MKL_NUM_THREADS=1
@@ -109,7 +132,5 @@ services:
       - ~/.cache/huggingface:/root/.cache/huggingface
 
     depends_on:
-      ingest:
-        condition: service_completed_successfully
       vllm:
         condition: service_healthy
