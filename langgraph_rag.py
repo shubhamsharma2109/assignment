@@ -1,17 +1,36 @@
 from typing import TypedDict, List
 
 from langchain_core.documents import Document
-from langchain_core.prompts import ChatPromptTemplate
 
 from langgraph.graph import StateGraph, START, END
 
 # ============================================================
 # Import existing RAG components from rag.py
 # ============================================================
+#
+# rag.py must expose:
+#   - client          (OpenAI SDK client pointed at the vLLM
+#                       OpenAI-compatible endpoint)
+#   - VLLM_MODEL      (model name string)
+#   - retrieve()      (hybrid dense + BM25 retrieval function,
+#                       returns List[Document])
+#   - format_context() (turns retrieved docs into [Sx] blocks)
+#
+# This replaces the old `llm` / `hybrid_retriever` LangChain
+# objects, which rag.py does not define when using the raw
+# vLLM OpenAI-compatible client.
+#
+# format_context is imported (not reimplemented here) so that
+# citation formatting — page numbers, content type labels for
+# figures/tables, visual IDs, citation metadata — is identical
+# between rag.py's direct CLI and this graph. Two independent
+# formatters would drift apart over time.
 
 from rag import (
-    llm,
-    hybrid_retriever,
+    client,
+    VLLM_MODEL,
+    retrieve,
+    format_context,
 )
 
 
@@ -59,59 +78,54 @@ FALLBACK_MESSAGE = (
 
 
 # ============================================================
-# Helper
+# vLLM call helper
 # ============================================================
 
-def format_context(
-    documents: List[Document]
+def call_llm(
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float = 0,
 ) -> str:
 
-    context_parts = []
+    """
+    Single-turn chat completion against the vLLM
+    OpenAI-compatible endpoint.
 
-    for i, doc in enumerate(
-        documents,
-        start=1
-    ):
+    vLLM (with this model/template) does not support a
+    separate "system" role, so the system-level instructions
+    are folded into the single "user" message instead — same
+    approach rag.py uses for its own vLLM calls.
+    """
 
-        source = doc.metadata.get(
-            "source",
-            "Unknown source"
-        )
+    combined_prompt = (
+        f"{system_prompt.strip()}\n\n"
+        f"{'=' * 60}\n\n"
+        f"{user_prompt.strip()}"
+    )
 
-        page = doc.metadata.get(
-            "page"
-        )
+    response = client.chat.completions.create(
 
-        chunk_id = doc.metadata.get(
-            "chunk_id",
-            "unknown"
-        )
+        model=VLLM_MODEL,
 
-        if page is not None:
+        messages=[
 
-            location = (
-                f"page {page + 1}, "
-                f"chunk {chunk_id}"
-            )
+            {
+                "role": "user",
+                "content": combined_prompt,
+            },
 
-        else:
+        ],
 
-            location = (
-                f"chunk {chunk_id}"
-            )
+        temperature=temperature,
 
-        context_parts.append(
-            f"""
-[S{i}]
-Source: {source}
-Location: {location}
+    )
 
-{doc.page_content}
-"""
-        )
-
-    return "\n\n".join(
-        context_parts
+    return (
+        response
+        .choices[0]
+        .message
+        .content
+        .strip()
     )
 
 
@@ -125,13 +139,7 @@ def router_node(
 
     question = state["question"]
 
-    router_prompt = ChatPromptTemplate.from_messages(
-        [
-
-            (
-                "system",
-
-                """
+    system_prompt = """
 You are the query router for a
 research-paper question answering system.
 
@@ -183,24 +191,11 @@ or
 
 OUT_OF_SCOPE
 """
-            ),
 
-            (
-                "human",
-                "{question}"
-            ),
-        ]
-    )
-
-    messages = router_prompt.format_messages(
-        question=question
-    )
-
-    response = llm.invoke(
-        messages
-    )
-
-    result = response.content.strip().upper()
+    result = call_llm(
+        system_prompt=system_prompt,
+        user_prompt=question,
+    ).upper()
 
     if "RESEARCH_PAPER" in result:
 
@@ -268,7 +263,7 @@ def retrieval_node(
         f"\n[RETRIEVAL] {query}"
     )
 
-    documents = hybrid_retriever.invoke(
+    documents = retrieve(
         query
     )
 
@@ -308,13 +303,7 @@ def relevance_node(
         documents
     )
 
-    relevance_prompt = ChatPromptTemplate.from_messages(
-        [
-
-            (
-                "system",
-
-                """
+    system_prompt = """
 You are a strict relevance grader for
 a research-paper RAG system.
 
@@ -336,12 +325,8 @@ answer the question.
 
 Do not use outside knowledge.
 """
-            ),
 
-            (
-                "human",
-
-                """
+    user_prompt = f"""
 Question:
 
 {question}
@@ -351,20 +336,11 @@ Retrieved research-paper chunks:
 
 {context}
 """
-            ),
-        ]
-    )
 
-    messages = relevance_prompt.format_messages(
-        question=question,
-        context=context
-    )
-
-    response = llm.invoke(
-        messages
-    )
-
-    result = response.content.strip().upper()
+    result = call_llm(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    ).upper()
 
     relevant = (
         result == "RELEVANT"
@@ -428,13 +404,7 @@ def rewrite_node(
         0
     )
 
-    rewrite_prompt = ChatPromptTemplate.from_messages(
-        [
-
-            (
-                "system",
-
-                """
+    system_prompt = """
 You rewrite search queries for a
 research-paper retrieval system.
 
@@ -452,12 +422,8 @@ Rules:
 - Do not invent information.
 - Return ONLY the rewritten query.
 """
-            ),
 
-            (
-                "human",
-
-                """
+    user_prompt = f"""
 Original question:
 
 {question}
@@ -467,21 +433,10 @@ Previous query:
 
 {previous_query}
 """
-            ),
-        ]
-    )
 
-    messages = rewrite_prompt.format_messages(
-        question=question,
-        previous_query=previous_query
-    )
-
-    response = llm.invoke(
-        messages
-    )
-
-    rewritten_query = (
-        response.content.strip()
+    rewritten_query = call_llm(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
     )
 
     print(
@@ -511,13 +466,7 @@ def answer_node(
         documents
     )
 
-    answer_prompt = ChatPromptTemplate.from_messages(
-        [
-
-            (
-                "system",
-
-                """
+    system_prompt = """
 You are a research-paper QA assistant.
 
 Answer ONLY using the supplied
@@ -554,12 +503,8 @@ STRICT RULES:
 10. Keep the answer academically clear
     and concise.
 """
-            ),
 
-            (
-                "human",
-
-                """
+    user_prompt = f"""
 Question:
 
 {question}
@@ -574,20 +519,11 @@ Answer using ONLY the supplied context.
 
 Include citations such as [S1] and [S2].
 """
-            ),
-        ]
-    )
 
-    messages = answer_prompt.format_messages(
-        question=question,
-        context=context
+    answer = call_llm(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
     )
-
-    response = llm.invoke(
-        messages
-    )
-
-    answer = response.content.strip()
 
     print(
         f"[ANSWER]\n{answer}"
@@ -616,13 +552,7 @@ def verification_node(
         documents
     )
 
-    verification_prompt = ChatPromptTemplate.from_messages(
-        [
-
-            (
-                "system",
-
-                """
+    system_prompt = """
 You are a strict hallucination checker
 for a research-paper RAG system.
 
@@ -661,12 +591,8 @@ unsupported, return UNSUPPORTED.
 
 Do not use outside knowledge.
 """
-            ),
 
-            (
-                "human",
-
-                """
+    user_prompt = f"""
 Question:
 
 {question}
@@ -681,21 +607,11 @@ Generated answer:
 
 {answer}
 """
-            ),
-        ]
-    )
 
-    messages = verification_prompt.format_messages(
-        question=question,
-        context=context,
-        answer=answer
-    )
-
-    response = llm.invoke(
-        messages
-    )
-
-    result = response.content.strip().upper()
+    result = call_llm(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    ).upper()
 
     verified = (
         result == "SUPPORTED"
@@ -738,12 +654,7 @@ def general_node(
 
     question = state["question"]
 
-    response = llm.invoke(
-        [
-            (
-                "system",
-
-                """
+    system_prompt = """
 You are the general conversation component
 of a research-paper QA assistant.
 
@@ -753,18 +664,14 @@ normally.
 Do NOT claim that the answer came from
 the research-paper corpus.
 """
-            ),
 
-            (
-                "human",
-                question
-            ),
-        ]
+    answer = call_llm(
+        system_prompt=system_prompt,
+        user_prompt=question,
     )
 
     return {
-        "final_answer":
-            response.content.strip()
+        "final_answer": answer
     }
 
 
@@ -991,7 +898,7 @@ if __name__ == "__main__":
     )
 
     print(
-        "LangGraph + LangChain + Chroma + MiniLM + Gemini"
+        "LangGraph + LangChain + Chroma + MiniLM + vLLM"
     )
 
     print("=" * 65)
