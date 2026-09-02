@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   vllm:
     image: vllm/vllm-openai:latest
@@ -39,6 +41,18 @@ services:
     build: .
     container_name: rag-ingest
     command: python ingestion.py
+    
+    # --- ADDED THESE TWO BLOCKS TO FIX THE EXIT 136 CRASH ---
+    shm_size: '8gb'  # Prevents PyTorch from running out of shared memory
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]  # Gives DocLayout-YOLO access to the GPU
+    # --------------------------------------------------------
+
     environment:
       - VLLM_BASE_URL=http://vllm:8000/v1
       - VLLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct-AWQ
@@ -56,9 +70,6 @@ services:
     build: .
     container_name: rag-api
     restart: unless-stopped
-    # Explicit command so this container definitely runs the API
-    # server, regardless of the Dockerfile's default CMD (which the
-    # ingest service already overrides for its own purpose).
     command: uvicorn api:app --host 0.0.0.0 --port 8080
     ports:
       - "8080:8080"
